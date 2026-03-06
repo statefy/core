@@ -13,6 +13,5 @@ output="$("$BINARY_PATH")"
 grep -F '== DFA<char> (even number of 1s) ==' <<<"$output" >/dev/null
 grep -F 'serialized snapshot (bytes=' <<<"$output" >/dev/null
 grep -F 'nfa->dfa states=' <<<"$output" >/dev/null
-grep -F 'token DFA snapshot bytes=' <<<"$output" >/dev/null
 
 echo "native CLI smoke check passed for $BINARY_PATH"

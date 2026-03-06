@@ -173,58 +173,9 @@ int main()
     // NFA -> DFA -> minimize
     std::vector<char> alpha = {'a', 'b'};
     auto dfa_from_nfa = n.to_dfa(alpha);
-    dfa_from_nfa.make_total(99, alpha);
     auto minimized = dfa_from_nfa.minimize(alpha);
     std::cout << "nfa->dfa states=" << dfa_from_nfa.states().size()
               << " minimized=" << minimized.states().size() << "\n";
-
-    // -------------------------
-    // DFA<std::string> token example
-    // Language: OPEN followed by any number of CLOSE (including zero CLOSE)
-    // -------------------------
-    print_section("DFA<std::string> token stream");
-    DFA<std::string> token_dfa;
-    constexpr StateId t0 = 0;
-    constexpr StateId t1 = 1;
-    constexpr StateId t_dead = 2;
-
-    token_dfa.set_start(t0);
-    token_dfa.set_accepting(t1, true);
-    token_dfa.set_transition(t0, "OPEN", t1);
-    token_dfa.set_transition(t1, "CLOSE", t1);
-    token_dfa.set_transition(t1, "OPEN", t_dead);
-    token_dfa.set_transition(t_dead, "OPEN", t_dead);
-    token_dfa.set_transition(t_dead, "CLOSE", t_dead);
-
-    std::vector<std::string> tokens1 = {"OPEN"};
-    std::vector<std::string> tokens2 = {"OPEN", "CLOSE", "CLOSE"};
-    std::vector<std::string> tokens3 = {"CLOSE"};
-
-    for (const auto &tokens : {tokens1, tokens2, tokens3})
-    {
-        auto r = token_dfa.run(tokens.begin(), tokens.end());
-        std::cout << "tokens=[";
-        for (std::size_t i = 0; i < tokens.size(); ++i)
-        {
-            if (i > 0)
-                std::cout << ",";
-            std::cout << tokens[i];
-        }
-        std::cout << "] => " << (r.accepted ? "ACCEPT" : "REJECT")
-                  << " (complete=" << (r.complete ? "yes" : "no") << ")\n";
-    }
-
-    auto token_snap = token_dfa.snapshot();
-    std::string token_json;
-    err = fa::json::serialize(token_snap, token_json);
-    if (err.ok)
-    {
-        std::cout << "token DFA snapshot bytes=" << token_json.size() << "\n";
-    }
-    else
-    {
-        std::cout << "token DFA serialize failed: " << err.message << "\n";
-    }
 
     return 0;
 }
