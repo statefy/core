@@ -14,7 +14,7 @@ defaults:
 
 concurrency:
   group: dev-build
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 env:
   IMAGE_NAME: ghcr.io/${{ github.repository_owner }}/core
