@@ -15,7 +15,8 @@
 
 # IDEs and editors
 /.idea/
-/.vscode/
+/.vscode/*
+!/.vscode/c_cpp_properties.json
 
 # OS files
 .DS_Store

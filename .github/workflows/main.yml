@@ -7,7 +7,10 @@ on:
 
 permissions:
   contents: write
-  packages: write
+
+defaults:
+  run:
+    shell: bash
 
 concurrency:
   group: main-release
@@ -17,39 +20,108 @@ env:
   IMAGE_NAME: ghcr.io/${{ github.repository_owner }}/core
 
 jobs:
-  build-native:
-    name: Build native CLI
-    runs-on: ubuntu-latest
+  meta:
+    name: Resolve release metadata
+    runs-on: ubuntu-22.04
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      tag: ${{ steps.version.outputs.tag }}
 
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
 
-      - name: Install native build toolchain
+      - name: Read SemVer version
+        id: version
+        run: |
+          version="$(tr -d '[:space:]' < VERSION)"
+          if [[ ! "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "VERSION must contain a SemVer version in X.Y.Z format" >&2
+            exit 1
+          fi
+
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "tag=v$version" >> "$GITHUB_OUTPUT"
+
+      - name: Ensure the release tag does not already exist
+        run: |
+          existing_tag_target="$(git ls-remote --refs --tags origin "refs/tags/${{ steps.version.outputs.tag }}" | awk '{print $1}' | head -n1)"
+          if [[ -n "$existing_tag_target" && "$existing_tag_target" != "$GITHUB_SHA" ]]; then
+            echo "Release tag ${{ steps.version.outputs.tag }} already exists on a different commit. Bump VERSION before pushing to main." >&2
+            exit 1
+          fi
+
+  build-native:
+    name: Build native CLI (${{ matrix.platform }})
+    runs-on: ${{ matrix.runner }}
+    needs: meta
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-22.04
+            platform: linux-x64
+          - runner: windows-2022
+            platform: windows-x64
+          - runner: macos-13
+            platform: macos-x64
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Install Linux build toolchain
+        if: runner.os == 'Linux'
         run: |
           sudo apt-get update
           sudo apt-get install -y build-essential cmake
 
-      - name: Build native binary
-        run: bash scripts/build-native.sh dist/linux
+      - name: Build native artifacts
+        run: |
+          build_dir="build/${{ matrix.platform }}"
+          install_dir="$build_dir/install"
+          dist_dir="dist/${{ matrix.platform }}"
+          bash scripts/build-native.sh "$dist_dir" "$build_dir" "$install_dir"
 
-      - name: Package native binary
-        run: tar -C dist/linux -czf dist/core-linux-x64.tar.gz core
+      - name: Run native tests
+        run: ctest --test-dir "build/${{ matrix.platform }}" --build-config Release --output-on-failure
 
-      - name: Upload native artifact
+      - name: Run CLI smoke check
+        run: |
+          binary="dist/${{ matrix.platform }}/core"
+          if [[ "${{ runner.os }}" == "Windows" ]]; then
+            binary="${binary}.exe"
+          fi
+          bash scripts/smoke-native.sh "$binary"
+
+      - name: Package native artifacts
+        run: |
+          bash scripts/package-native-artifacts.sh \
+            "${{ matrix.platform }}" \
+            "dist/${{ matrix.platform }}" \
+            "build/${{ matrix.platform }}/install" \
+            "dist/artifacts/${{ matrix.platform }}"
+
+      - name: Upload native artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: core-linux-x64
-          path: dist/core-linux-x64.tar.gz
+          name: core-${{ matrix.platform }}
+          path: dist/artifacts/${{ matrix.platform }}/*
           if-no-files-found: error
 
   build-wasm:
     name: Build WebAssembly bundle
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
+    needs: meta
 
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
 
       - name: Set up Emscripten
         uses: mymindstorm/setup-emsdk@v14
@@ -58,6 +130,9 @@ jobs:
 
       - name: Build WASM bundle
         run: bash scripts/build-wasm.sh dist/wasm
+
+      - name: Run WASM smoke check
+        run: bash scripts/smoke-wasm.sh dist/wasm/core_wasm.js dist/wasm/core_wasm.wasm
 
       - name: Package WASM bundle
         run: tar -C dist/wasm -czf dist/core-wasm.tar.gz core_wasm.js core_wasm.wasm
@@ -71,7 +146,17 @@ jobs:
 
   publish-image:
     name: Publish latest image
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
+    needs:
+      - meta
+      - build-native
+      - build-wasm
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+      attestations: write
+      artifact-metadata: write
 
     steps:
       - name: Check out repository
@@ -94,53 +179,103 @@ jobs:
           images: ${{ env.IMAGE_NAME }}
           tags: |
             type=raw,value=latest
+            type=raw,value=${{ needs.meta.outputs.version }}
+            type=raw,value=v${{ needs.meta.outputs.version }}
             type=sha,prefix=sha-
 
       - name: Build and push latest image
+        id: build_image
         uses: docker/build-push-action@v6
         with:
           context: .
           file: ./Dockerfile
           push: true
+          platforms: linux/amd64
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
+          provenance: mode=max
+          sbom: true
+
+      - name: Prepare image SBOM output path
+        run: mkdir -p dist
+
+      - name: Generate image SBOM
+        uses: anchore/sbom-action@v0
+        with:
+          image: ${{ env.IMAGE_NAME }}@${{ steps.build_image.outputs.digest }}
+          registry-username: ${{ github.actor }}
+          registry-password: ${{ secrets.GITHUB_TOKEN }}
+          format: spdx-json
+          output-file: dist/core-image-sbom.spdx.json
+          artifact-name: core-image-sbom.spdx.json
+          upload-artifact: false
+          upload-release-assets: false
+
+      - name: Upload image SBOM artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: core-image-sbom
+          path: dist/core-image-sbom.spdx.json
+          if-no-files-found: error
+
+      - name: Generate container provenance attestation
+        if: ${{ !github.event.repository.private || vars.ENABLE_ATTESTATIONS == 'true' }}
+        uses: actions/attest-build-provenance@v3
+        with:
+          subject-name: ${{ env.IMAGE_NAME }}
+          subject-digest: ${{ steps.build_image.outputs.digest }}
+          push-to-registry: true
+
+      - name: Generate container SBOM attestation
+        if: ${{ !github.event.repository.private || vars.ENABLE_ATTESTATIONS == 'true' }}
+        uses: actions/attest-sbom@v2
+        with:
+          subject-name: ${{ env.IMAGE_NAME }}
+          subject-digest: ${{ steps.build_image.outputs.digest }}
+          sbom-path: dist/core-image-sbom.spdx.json
+          push-to-registry: true
 
   release:
     name: Create GitHub release
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
     needs:
+      - meta
       - build-native
       - build-wasm
       - publish-image
 
     steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
       - name: Download release artifacts
         uses: actions/download-artifact@v4
         with:
+          pattern: core-*
           path: release-assets
 
-      - name: Prepare release metadata
-        id: release_meta
-        shell: bash
+      - name: Prepare release checksums
         run: |
-          tag="main-$(date -u +%Y%m%d%H%M%S)-${GITHUB_SHA::7}"
-          echo "tag=$tag" >> "$GITHUB_OUTPUT"
           find release-assets -type f ! -name 'SHA256SUMS.txt' -print0 | sort -z | xargs -0 -r sha256sum > release-assets/SHA256SUMS.txt
 
       - name: Create release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        shell: bash
         run: |
           mapfile -d '' assets < <(find release-assets -type f -print0 | sort -z)
           if [ "${#assets[@]}" -eq 0 ]; then
             echo "No release assets were produced." >&2
             exit 1
           fi
-          gh release create "${{ steps.release_meta.outputs.tag }}" "${assets[@]}" \
-            --target "$GITHUB_SHA" \
-            --title "core ${{ steps.release_meta.outputs.tag }}" \
-            --generate-notes \
-            --latest
+
+          if gh release view "${{ needs.meta.outputs.tag }}" >/dev/null 2>&1; then
+            gh release upload "${{ needs.meta.outputs.tag }}" "${assets[@]}" --clobber
+          else
+            gh release create "${{ needs.meta.outputs.tag }}" "${assets[@]}" \
+              --target "$GITHUB_SHA" \
+              --title "core ${{ needs.meta.outputs.tag }}" \
+              --generate-notes \
+              --latest
+          fi

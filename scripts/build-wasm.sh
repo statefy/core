@@ -16,6 +16,6 @@ mkdir -p "$OUT_DIR"
   -s WASM=1 \
   -s MODULARIZE=1 \
   -s EXPORT_ES6=1 \
-  -s ENVIRONMENT=web \
+  -s ENVIRONMENT=web,node \
   -s ALLOW_MEMORY_GROWTH=1 \
   --bind

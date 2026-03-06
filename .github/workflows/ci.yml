@@ -1,0 +1,82 @@
+name: Pull Request CI
+
+on:
+  pull_request:
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    shell: bash
+
+concurrency:
+  group: pr-ci-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-native:
+    name: Native CI (${{ matrix.platform }})
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-22.04
+            platform: linux-x64
+          - runner: windows-2022
+            platform: windows-x64
+          - runner: macos-13
+            platform: macos-x64
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Install Linux build toolchain
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential cmake
+
+      - name: Build native artifacts
+        run: |
+          build_dir="build/${{ matrix.platform }}"
+          install_dir="$build_dir/install"
+          dist_dir="dist/${{ matrix.platform }}"
+          bash scripts/build-native.sh "$dist_dir" "$build_dir" "$install_dir"
+
+      - name: Run native tests
+        run: ctest --test-dir "build/${{ matrix.platform }}" --build-config Release --output-on-failure
+
+      - name: Run CLI smoke check
+        run: |
+          binary="dist/${{ matrix.platform }}/core"
+          if [[ "${{ runner.os }}" == "Windows" ]]; then
+            binary="${binary}.exe"
+          fi
+          bash scripts/smoke-native.sh "$binary"
+
+  build-wasm:
+    name: WASM CI
+    runs-on: ubuntu-22.04
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Set up Emscripten
+        uses: mymindstorm/setup-emsdk@v14
+        with:
+          version: latest
+
+      - name: Build WASM bundle
+        run: bash scripts/build-wasm.sh dist/wasm
+
+      - name: Run WASM smoke check
+        run: bash scripts/smoke-wasm.sh dist/wasm/core_wasm.js dist/wasm/core_wasm.wasm

@@ -6,11 +6,14 @@ RUN apt-get update \
 
 WORKDIR /workspace
 COPY CMakeLists.txt ./
+COPY VERSION ./
 COPY apps ./apps
+COPY cmake ./cmake
 COPY include ./include
 COPY scripts ./scripts
+COPY tests ./tests
 
-RUN bash scripts/build-native.sh /out
+RUN BUILD_TESTING=OFF bash scripts/build-native.sh /out /workspace/build/native /workspace/build/native/install
 
 FROM debian:bookworm-slim
 
