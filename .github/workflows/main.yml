@@ -51,62 +51,120 @@ jobs:
             exit 1
           fi
 
-  build-native:
-    name: Build native CLI (${{ matrix.platform }})
-    runs-on: ${{ matrix.runner }}
+  build-native-linux:
+    name: Build native CLI (linux-x64)
+    runs-on: ubuntu-22.04
     needs: meta
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - runner: ubuntu-22.04
-            platform: linux-x64
-          - runner: windows-2022
-            platform: windows-x64
-          - runner: macos-13
-            platform: macos-x64
 
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
 
       - name: Install Linux build toolchain
-        if: runner.os == 'Linux'
         run: |
           sudo apt-get update
           sudo apt-get install -y build-essential cmake
 
       - name: Build native artifacts
         run: |
-          build_dir="build/${{ matrix.platform }}"
+          build_dir="build/linux-x64"
           install_dir="$build_dir/install"
-          dist_dir="dist/${{ matrix.platform }}"
+          dist_dir="dist/linux-x64"
           bash scripts/build-native.sh "$dist_dir" "$build_dir" "$install_dir"
 
       - name: Run native tests
-        run: ctest --test-dir "build/${{ matrix.platform }}" --build-config Release --output-on-failure
+        run: ctest --test-dir "build/linux-x64" --build-config Release --output-on-failure
 
       - name: Run CLI smoke check
-        run: |
-          binary="dist/${{ matrix.platform }}/core"
-          if [[ "${{ runner.os }}" == "Windows" ]]; then
-            binary="${binary}.exe"
-          fi
-          bash scripts/smoke-native.sh "$binary"
+        run: bash scripts/smoke-native.sh "dist/linux-x64/core"
 
       - name: Package native artifacts
         run: |
           bash scripts/package-native-artifacts.sh \
-            "${{ matrix.platform }}" \
-            "dist/${{ matrix.platform }}" \
-            "build/${{ matrix.platform }}/install" \
-            "dist/artifacts/${{ matrix.platform }}"
+            "linux-x64" \
+            "dist/linux-x64" \
+            "build/linux-x64/install" \
+            "dist/artifacts/linux-x64"
 
       - name: Upload native artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: core-${{ matrix.platform }}
-          path: dist/artifacts/${{ matrix.platform }}/*
+          name: core-linux-x64
+          path: dist/artifacts/linux-x64/*
+          if-no-files-found: error
+
+  build-native-windows:
+    name: Build native CLI (windows-x64)
+    runs-on: windows-2022
+    needs: meta
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Build native artifacts
+        run: |
+          build_dir="build/windows-x64"
+          install_dir="$build_dir/install"
+          dist_dir="dist/windows-x64"
+          bash scripts/build-native.sh "$dist_dir" "$build_dir" "$install_dir"
+
+      - name: Run native tests
+        run: ctest --test-dir "build/windows-x64" --build-config Release --output-on-failure
+
+      - name: Run CLI smoke check
+        run: bash scripts/smoke-native.sh "dist/windows-x64/core.exe"
+
+      - name: Package native artifacts
+        run: |
+          bash scripts/package-native-artifacts.sh \
+            "windows-x64" \
+            "dist/windows-x64" \
+            "build/windows-x64/install" \
+            "dist/artifacts/windows-x64"
+
+      - name: Upload native artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: core-windows-x64
+          path: dist/artifacts/windows-x64/*
+          if-no-files-found: error
+
+  build-native-macos:
+    name: Build native CLI (macos-x64)
+    runs-on: macos-13
+    needs: meta
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Build native artifacts
+        run: |
+          build_dir="build/macos-x64"
+          install_dir="$build_dir/install"
+          dist_dir="dist/macos-x64"
+          bash scripts/build-native.sh "$dist_dir" "$build_dir" "$install_dir"
+
+      - name: Run native tests
+        run: ctest --test-dir "build/macos-x64" --build-config Release --output-on-failure
+
+      - name: Run CLI smoke check
+        run: bash scripts/smoke-native.sh "dist/macos-x64/core"
+
+      - name: Package native artifacts
+        run: |
+          bash scripts/package-native-artifacts.sh \
+            "macos-x64" \
+            "dist/macos-x64" \
+            "build/macos-x64/install" \
+            "dist/artifacts/macos-x64"
+
+      - name: Upload native artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: core-macos-x64
+          path: dist/artifacts/macos-x64/*
           if-no-files-found: error
 
   build-wasm:
@@ -149,7 +207,7 @@ jobs:
     runs-on: ubuntu-22.04
     needs:
       - meta
-      - build-native
+      - build-native-linux
       - build-wasm
     permissions:
       contents: read
@@ -242,7 +300,9 @@ jobs:
     runs-on: ubuntu-22.04
     needs:
       - meta
-      - build-native
+      - build-native-linux
+      - build-native-windows
+      - build-native-macos
       - build-wasm
       - publish-image
 
