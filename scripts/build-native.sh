@@ -24,7 +24,12 @@ mkdir -p "$OUT_DIR"
 
 cmake "${cmake_args[@]}"
 
-cmake --build "$BUILD_DIR" --config "$CONFIG" --target core-cli
+if [[ "$BUILD_TESTING" == "ON" ]]; then
+  cmake --build "$BUILD_DIR" --config "$CONFIG"
+else
+  cmake --build "$BUILD_DIR" --config "$CONFIG" --target core-cli
+fi
+
 cmake --install "$BUILD_DIR" --config "$CONFIG" --prefix "$INSTALL_DIR"
 
 for candidate in \
