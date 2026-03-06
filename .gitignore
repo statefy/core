@@ -1,28 +1,30 @@
-### AL ###
-#Template for AL projects for Dynamics 365 Business Central
-#launch.json folder
-.vscode/
-#Cache folder
-.alcache/
-#Symbols folder
-.alpackages/
-#Snapshots folder
-.snapshots/
-#Testing Output folder
-.output/
-#Extension App-file
-*.app
-#Rapid Application Development File
-rad.json
-#Translation Base-file
-*.g.xlf
-#License-file
-*.flf
-#Test results file
-TestResults.xml
+# Build directories
+/build/
+/dist/
+/out/
+/install/
+/cmake-build-*/
 
-build
-dist
-out
+# CMake
+/CMakeFiles/
+/CMakeCache.txt
+/cmake_install.cmake
+/compile_commands.json
+/Makefile
+/CMakeUserPresets.json
+
+# IDEs and editors
+/.idea/
+/.vscode/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Native binaries and libraries
 *.exe
 *.dll
+*.so
+*.dylib
+*.a
+*.lib

@@ -1,5 +1,5 @@
 #ifdef __EMSCRIPTEN__
-#include "finite_automata.hpp"
+#include <core/finite_automata.hpp>
 #include <emscripten/bind.h>
 #include <string>
 #include <vector>

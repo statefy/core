@@ -10,7 +10,8 @@ mkdir -p "$OUT_DIR"
 "$EMXX" \
   -std=c++17 \
   -O3 \
-  "$ROOT_DIR/src/wasm_api.cpp" \
+  -I "$ROOT_DIR/include" \
+  "$ROOT_DIR/bindings/wasm/wasm_api.cpp" \
   -o "$OUT_DIR/core_wasm.js" \
   -s WASM=1 \
   -s MODULARIZE=1 \
